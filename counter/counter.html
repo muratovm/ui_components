@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Counter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100;400;700&display=swap');
+
+        :root {
+            --page-bg: #0f172a;
+            --glass-bg: rgba(15, 23, 42, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-muted: #94a3b8;
+            --btn-text: #cbd5e1;
+            --btn-hover: #ffffff;
+        }
+
+        body {
+            background-color: var(--page-bg);
+            color: #e2e8f0;
+            overflow: hidden;
+            font-family: 'JetBrains Mono', monospace;
+            user-select: none;
+            transition: background-color 0.5s ease;
+        }
+
+        /* Custom Scrollbar for sliders */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: var(--text-muted);
+            opacity: 0.3;
+            border-radius: 2px;
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            transition: background-color 0.5s, border-color 0.5s;
+        }
+
+        .btn-icon {
+            color: var(--btn-text);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .btn-icon:hover {
+            transform: scale(1.1);
+            color: var(--btn-hover);
+        }
+
+        .btn-icon:active {
+            transform: scale(0.95);
+        }
+
+        .segment-divider {
+            width: 1px;
+            height: 24px;
+            background-color: var(--text-muted);
+            opacity: 0.2;
+            margin: 0 12px;
+        }
+
+        .hidden-ui {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(20px);
+        }
+
+        #ui-container {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .base-btn {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: all 0.2s;
+            color: var(--text-muted);
+        }
+
+        .base-btn:hover {
+            color: var(--btn-hover);
+        }
+
+        .base-btn.active {
+            background: rgba(56, 189, 248, 0.15);
+            /* Will be overridden dynamically */
+            color: #38bdf8;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+
+        /* The Main Number Glow */
+        #counter-display {
+            text-shadow: 0 0 30px rgba(56, 189, 248, 0.2);
+            transition: filter 0.1s ease, color 0.5s ease, text-shadow 0.5s ease;
+        }
+
+        .step-input {
+            background: transparent;
+            border: none;
+            color: var(--btn-hover);
+            /* Adapts to theme brightness */
+            text-align: right;
+            width: 40px;
+            font-family: inherit;
+            border-bottom: 1px solid var(--text-muted);
+            transition: color 0.5s;
+        }
+
+        .step-input:focus {
+            outline: none;
+            border-bottom: 1px solid currentColor;
+        }
+
+        /* Helper for theme transition of labels */
+        .theme-label {
+            color: var(--text-muted);
+            transition: color 0.5s;
+        }
+
+        /* Accessibility: Observable Focus States */
+        button:focus-visible,
+        input:focus-visible {
+            outline: 2px solid var(--btn-hover);
+            outline-offset: 4px;
+            border-radius: 4px;
+        }
+
+        /* Round focus for round buttons */
+        .btn-icon:focus-visible,
+        .rounded-full:focus-visible {
+            border-radius: 50%;
+        }
+    </style>
+</head>
+
+<body class="h-screen w-screen relative flex flex-col items-center justify-center">
+
+    <!-- Background Decoration -->
+    <div class="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div id="bg-circle"
+            class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-sky-500/5 blur-[120px] transition-colors duration-700">
+        </div>
+    </div>
+
+    <!-- Main Counter Display -->
+    <div class="z-10 relative flex flex-col items-center mb-20 w-full px-4">
+        <div id="counter-label" class="theme-label text-sm tracking-[0.3em] uppercase mb-4 opacity-50">Current Count
+        </div>
+        <div id="counter-display"
+            class="text-7xl md:text-9xl font-bold text-sky-400 tracking-tighter break-all text-center">0</div>
+    </div>
+
+    <!-- Controls Container -->
+    <div id="ui-container"
+        class="absolute bottom-10 left-0 right-0 z-20 flex justify-center items-end px-4 gap-3 pointer-events-none flex-wrap">
+
+        <!-- Segment 1: Format & Manual Control -->
+        <div
+            class="glass-panel rounded-2xl px-4 py-3 flex items-center shadow-lg shadow-black/10 pointer-events-auto h-16 min-w-fit">
+            <!-- Bases -->
+            <div class="flex space-x-2" role="group" aria-label="Number Base Selection">
+                <button id="btnDec" class="base-btn active w-full text-center" aria-label="Decimal">DEC</button>
+                <button id="btnHex" class="base-btn flex-1 text-center" aria-label="Hexadecimal">HEX</button>
+                <button id="btnBin" class="base-btn flex-1 text-center" aria-label="Binary">BIN</button>
+            </div>
+
+            <div class="segment-divider"></div>
+
+            <!-- Manual +/- -->
+            <div class="flex items-center space-x-4">
+                <button id="btnMinus"
+                    class="btn-icon w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-white/10"
+                    style="color: #f87171;" aria-label="Decrease Count" title="Decrease">
+                    <i class="fas fa-minus" aria-hidden="true"></i>
+                </button>
+                <button id="btnPlus"
+                    class="btn-icon w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-emerald-400 hover:text-emerald-300 hover:bg-white/20 text-xl"
+                    style="color: #34d399;" aria-label="Increase Count" title="Increase">
+                    <i class="fas fa-plus" aria-hidden="true"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Segment 2: Automation -->
+        <div
+            class="glass-panel rounded-2xl px-5 py-3 flex items-center shadow-lg shadow-black/10 pointer-events-auto h-16 min-w-fit">
+            <!-- Play/Pause -->
+            <button id="playPauseBtn" class="text-2xl btn-icon w-10 flex justify-center" aria-label="Toggle Auto-Count"
+                title="Play/Pause">
+                <i class="fas fa-play" aria-hidden="true"></i>
+            </button>
+
+            <!-- Direction Toggle (New) -->
+            <button id="directionBtn" class="text-lg btn-icon w-8 flex justify-center ml-2 opacity-80 hover:opacity-100"
+                title="Toggle Direction" aria-label="Toggle Direction">
+                <i class="fas fa-arrow-up" aria-hidden="true"></i>
+            </button>
+
+            <div class="segment-divider"></div>
+
+            <!-- Speed -->
+            <div class="flex flex-col w-24 mx-2">
+                <div class="flex justify-between text-[9px] theme-label uppercase tracking-wider mb-1">
+                    <span>1x</span>
+                    <span>Max</span>
+                </div>
+                <input type="range" id="speedSlider" min="10" max="1000" value="500" class="w-full dir-rtl"
+                    style="direction: rtl" aria-label="Speed Control">
+            </div>
+
+            <div class="segment-divider"></div>
+
+            <!-- Step Size -->
+            <div class="flex flex-col items-end">
+                <span class="text-[9px] theme-label uppercase tracking-wider">Step Size</span>
+                <div class="flex items-center mt-1">
+                    <span class="text-xs theme-label mr-1">x</span>
+                    <input type="number" id="stepInput" value="1" min="1" class="step-input font-bold text-lg"
+                        aria-label="Step Size">
+                </div>
+            </div>
+        </div>
+
+        <!-- Segment 3: Actions -->
+        <div
+            class="glass-panel rounded-2xl px-4 py-3 flex items-center shadow-lg shadow-black/10 pointer-events-auto h-16 min-w-fit">
+
+            <!-- Set Value -->
+            <button id="setBtn" class="btn-icon mx-2" title="Set Start Value" aria-label="Set Start Value">
+                <i class="fas fa-pen text-xl" aria-hidden="true"></i>
+            </button>
+
+            <!-- Randomize -->
+            <button id="randomizeBtn" class="btn-icon mx-2 flex flex-col items-center gap-1 group" title="Randomize"
+                aria-label="Randomize Value">
+                <i class="fas fa-dice text-xl" aria-hidden="true"></i>
+            </button>
+
+            <div class="segment-divider"></div>
+
+            <!-- Colors -->
+            <button id="colorBtn" class="btn-icon mx-2" title="Change Theme" aria-label="Change Theme">
+                <i class="fas fa-palette text-xl" aria-hidden="true"></i>
+            </button>
+
+            <div class="segment-divider"></div>
+
+            <!-- Hide UI -->
+            <button id="hideUiBtn" class="btn-icon mx-2" title="Hide UI" aria-label="Hide UI">
+                <i class="fas fa-eye-slash text-xl" aria-hidden="true"></i>
+            </button>
+        </div>
+
+    </div>
+
+    <!-- Restore UI Button -->
+    <button id="restoreUiBtn"
+        class="absolute bottom-6 right-6 z-30 glass-panel rounded-full w-12 h-12 flex items-center justify-center btn-icon shadow-lg opacity-0 pointer-events-none translate-y-10"
+        aria-label="Show UI">
+        <i class="fas fa-eye" aria-hidden="true"></i>
+    </button>
+
+    <script>
+        // State
+        let count = 0;
+        let step = 1;
+        let base = 10;
+        let isPlaying = false;
+        let direction = 1; // 1 = Up, -1 = Down
+        let timerId = null;
+        let speed = 500;
+
+        // Expanded Themes (Background + Foreground combos)
+        const themes = [
+            {
+                name: 'Sky',
+                textClass: 'text-sky-400',
+                bgCircle: 'bg-sky-500/10',
+                accentColor: '#38bdf8',
+                // CSS Variables for this theme
+                pageBg: '#0f172a', // Slate 900
+                glassBg: 'rgba(15, 23, 42, 0.7)',
+                glassBorder: 'rgba(255, 255, 255, 0.1)',
+                textMuted: '#94a3b8',
+                btnText: '#cbd5e1',
+                btnHover: '#ffffff'
+            },
+            {
+                name: 'Terminal',
+                textClass: 'text-emerald-400',
+                bgCircle: 'bg-emerald-500/10',
+                accentColor: '#34d399',
+                pageBg: '#000000', // Pure Black
+                glassBg: 'rgba(5, 20, 5, 0.8)',
+                glassBorder: 'rgba(52, 211, 153, 0.2)',
+                textMuted: '#4b5563',
+                btnText: '#9ca3af',
+                btnHover: '#34d399'
+            },
+            {
+                name: 'Paper',
+                textClass: 'text-slate-900',
+                bgCircle: 'bg-slate-400/20',
+                accentColor: '#0f172a',
+                pageBg: '#f8fafc', // Slate 50 (White-ish)
+                glassBg: 'rgba(255, 255, 255, 0.65)',
+                glassBorder: 'rgba(0, 0, 0, 0.05)',
+                textMuted: '#64748b', // Slate 500
+                btnText: '#475569',
+                btnHover: '#000000'
+            },
+            {
+                name: 'Vapor',
+                textClass: 'text-violet-400',
+                bgCircle: 'bg-violet-500/10',
+                accentColor: '#a78bfa',
+                pageBg: '#1e1b4b', // Indigo 950
+                glassBg: 'rgba(30, 27, 75, 0.7)',
+                glassBorder: 'rgba(167, 139, 250, 0.1)',
+                textMuted: '#818cf8',
+                btnText: '#a5b4fc',
+                btnHover: '#ffffff'
+            },
+            {
+                name: 'Carbon',
+                textClass: 'text-rose-500',
+                bgCircle: 'bg-rose-500/5',
+                accentColor: '#f43f5e',
+                pageBg: '#18181b', // Zinc 950
+                glassBg: 'rgba(24, 24, 27, 0.8)',
+                glassBorder: 'rgba(255, 255, 255, 0.05)',
+                textMuted: '#71717a',
+                btnText: '#a1a1aa',
+                btnHover: '#f43f5e'
+            }
+        ];
+        let currentThemeIndex = 0;
+
+        // Elements
+        const display = document.getElementById('counter-display');
+        const bgCircle = document.getElementById('bg-circle');
+        const stepInput = document.getElementById('stepInput');
+
+        // --- sound effect ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playClickSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.type = 'triangle';
+            // Mechanical switch characteristic: short, slight pitch drop
+            oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.05);
+
+            gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.05);
+        }
+
+        function playThockSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            // Lower pitched "thock" for mode switches
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(200, audioCtx.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
+
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.1);
+        }
+
+        // --- Core Logic ---
+
+        function updateDisplay() {
+            let val;
+            if (base === 16) {
+                if (count < 0) {
+                    // Two's Complement (32-bit) for negatives
+                    // (count >>> 0) forces JS to treat it as an unsigned 32-bit integer
+                    val = '0x' + (count >>> 0).toString(16).toUpperCase();
+                } else {
+                    // Standard display for positives
+                    val = '0x' + count.toString(16).toUpperCase();
+                }
+            }
+            else if (base === 2) {
+                if (count < 0) {
+                    // Two's Complement (32-bit) for negatives
+                    val = '0b' + (count >>> 0).toString(2);
+                } else {
+                    // Standard display for positives
+                    val = '0b' + count.toString(2);
+                }
+            }
+            else {
+                val = count.toString();
+            }
+
+            display.innerText = val;
+
+            // Dynamic Font Sizing
+            // Added an extra step for very long strings (like 32-bit binary)
+            if (val.length > 20) display.style.fontSize = '1.5rem';
+            else if (val.length > 15) display.style.fontSize = '2rem';
+            else if (val.length > 10) display.style.fontSize = '4rem';
+            else if (val.length > 6) display.style.fontSize = '6rem';
+            else display.style.fontSize = ''; // Reset
+        }
+
+        function increment() {
+            count += step;
+            updateDisplay();
+        }
+
+        function decrement() {
+            count -= step;
+            updateDisplay();
+        }
+
+        function triggerBump() {
+            display.style.filter = "brightness(1.5)";
+            setTimeout(() => display.style.filter = "brightness(1)", 100);
+        }
+
+        // --- Controls ---
+
+        const btnDec = document.getElementById('btnDec');
+        const btnHex = document.getElementById('btnHex');
+        const btnBin = document.getElementById('btnBin');
+        const baseBtns = [btnDec, btnHex, btnBin];
+
+        function setBase(newBase, btn) {
+            base = newBase;
+            // Reset all
+            baseBtns.forEach(b => {
+                b.classList.remove('active');
+            });
+            // Activate one
+            btn.classList.add('active');
+            updateDisplay();
+            playThockSound();
+        }
+
+        btnDec.onclick = () => setBase(10, btnDec);
+        btnHex.onclick = () => setBase(16, btnHex);
+        btnBin.onclick = () => setBase(2, btnBin);
+
+        document.getElementById('btnPlus').onclick = () => { increment(); triggerBump(); playClickSound(); };
+        document.getElementById('btnMinus').onclick = () => { decrement(); triggerBump(); playClickSound(); };
+
+        // Automation
+        const playBtn = document.getElementById('playPauseBtn');
+        const directionBtn = document.getElementById('directionBtn');
+        const speedSlider = document.getElementById('speedSlider');
+
+        function togglePlay() {
+            playThockSound();
+            isPlaying = !isPlaying;
+            const icon = playBtn.querySelector('i');
+
+            if (isPlaying) {
+                icon.classList.remove('fa-play');
+                icon.classList.add('fa-pause');
+                startTimer();
+            } else {
+                icon.classList.remove('fa-pause');
+                icon.classList.add('fa-play');
+                stopTimer();
+            }
+        }
+
+        function toggleDirection() {
+            playThockSound();
+            direction *= -1;
+            const icon = directionBtn.querySelector('i');
+            if (direction === 1) {
+                icon.classList.remove('fa-arrow-down');
+                icon.classList.add('fa-arrow-up');
+            } else {
+                icon.classList.remove('fa-arrow-up');
+                icon.classList.add('fa-arrow-down');
+            }
+        }
+
+        function startTimer() {
+            if (timerId) clearInterval(timerId);
+            timerId = setInterval(() => {
+                // Apply direction to automation
+                if (direction === 1) increment();
+                else decrement();
+                // Play sound on auto-tick too (optional, maybe quieter)
+                // playClickSound(); // Uncomment if you want ticking sound
+            }, speed);
+        }
+
+        function stopTimer() {
+            if (timerId) clearInterval(timerId);
+            timerId = null;
+        }
+
+        playBtn.onclick = togglePlay;
+        directionBtn.onclick = toggleDirection;
+
+        speedSlider.min = 0;
+        speedSlider.max = 100;
+        speedSlider.value = 50;
+
+        speedSlider.oninput = (e) => {
+            const val = parseInt(e.target.value);
+            speed = 1000 - (val * 9.9);
+            if (isPlaying) startTimer();
+        };
+
+        stepInput.onchange = (e) => {
+            let val = parseInt(e.target.value);
+            if (isNaN(val) || val < 1) val = 1;
+            step = val;
+            stepInput.value = val;
+        };
+
+        // Actions
+        document.getElementById('setBtn').onclick = () => {
+            const input = prompt("Enter a number to start at:", count);
+            if (input !== null) {
+                const parsed = parseInt(input);
+                if (!isNaN(parsed)) {
+                    count = parsed;
+                    updateDisplay();
+                    triggerBump();
+                    playThockSound();
+                }
+            }
+        };
+
+        document.getElementById('randomizeBtn').onclick = () => {
+            count = Math.floor(Math.random() * 10000);
+            updateDisplay();
+            triggerBump();
+            playThockSound();
+        };
+
+        const hideUiBtn = document.getElementById('hideUiBtn');
+        const uiContainer = document.getElementById('ui-container');
+        const restoreUiBtn = document.getElementById('restoreUiBtn');
+        const counterLabel = document.getElementById('counter-label');
+
+        function toggleUi() {
+            const isHidden = uiContainer.classList.contains('hidden-ui');
+            if (!isHidden) {
+                uiContainer.classList.add('hidden-ui');
+                restoreUiBtn.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-10');
+                counterLabel.style.opacity = '0';
+            } else {
+                uiContainer.classList.remove('hidden-ui');
+                restoreUiBtn.classList.add('opacity-0', 'pointer-events-none', 'translate-y-10');
+                counterLabel.style.opacity = '0.5';
+            }
+        }
+
+        hideUiBtn.onclick = toggleUi;
+        restoreUiBtn.onclick = toggleUi;
+
+        // Theme Logic
+        function applyTheme(theme) {
+            const root = document.documentElement;
+
+            // 1. Set CSS Variables
+            root.style.setProperty('--page-bg', theme.pageBg);
+            root.style.setProperty('--glass-bg', theme.glassBg);
+            root.style.setProperty('--glass-border', theme.glassBorder);
+            root.style.setProperty('--text-muted', theme.textMuted);
+            root.style.setProperty('--btn-text', theme.btnText);
+            root.style.setProperty('--btn-hover', theme.btnHover);
+
+            // 2. Set Classes (Text & Circle)
+            // Remove all possible text/bg classes from previous themes
+            themes.forEach(t => {
+                display.classList.remove(t.textClass);
+                bgCircle.classList.remove(t.bgCircle);
+            });
+            display.classList.add(theme.textClass);
+            bgCircle.classList.add(theme.bgCircle);
+
+            // 3. Dynamic Styles for inputs/thumbs
+            const styleId = 'dynamic-theme-style';
+            let styleTag = document.getElementById(styleId);
+            if (!styleTag) {
+                styleTag = document.createElement('style');
+                styleTag.id = styleId;
+                document.head.appendChild(styleTag);
+            }
+
+            styleTag.innerHTML = `
+                input[type=range]::-webkit-slider-thumb {
+                    background: ${theme.accentColor} !important;
+                    box-shadow: 0 0 10px ${theme.accentColor}80 !important;
+                }
+                .base-btn.active {
+                    color: ${theme.accentColor} !important;
+                    text-shadow: 0 0 15px ${theme.accentColor} !important;
+                    background: ${theme.accentColor}15 !important;
+                }
+                #counter-display {
+                    text-shadow: 0 0 40px ${theme.accentColor}40 !important;
+                }
+            `;
+        }
+
+        document.getElementById('colorBtn').onclick = () => {
+            playThockSound();
+            currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+            applyTheme(themes[currentThemeIndex]);
+        };
+
+        // Keyboard Shortcuts
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                togglePlay();
+                e.preventDefault();
+            }
+            if (e.code === 'ArrowUp') { increment(); triggerBump(); playClickSound(); }
+            if (e.code === 'ArrowDown') { decrement(); triggerBump(); playClickSound(); }
+        });
+
+        // Initialize
+        updateDisplay();
+        applyTheme(themes[0]); // Start with Sky
+        togglePlay();
+    </script>
+</body>
+
+</html>
