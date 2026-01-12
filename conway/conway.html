@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conway's Game of Life</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #0f172a;
+            /* Slate 900 */
+            color: #e2e8f0;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* Custom Scrollbar for sliders */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+            /* Slider glow */
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #334155;
+            border-radius: 2px;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.6);
+            /* Slightly more transparent for bg effect */
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-icon {
+            transition: all 0.2s;
+        }
+
+        .btn-icon:hover {
+            transform: scale(1.1);
+            color: #38bdf8;
+            text-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+        }
+
+        .btn-icon:active {
+            transform: scale(0.95);
+        }
+
+        .segment-divider {
+            width: 1px;
+            height: 24px;
+            background-color: rgba(255, 255, 255, 0.1);
+            margin: 0 12px;
+        }
+
+        /* Hide scrollbars */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+
+        .hidden-ui {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(20px);
+        }
+
+        #ui-container {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Breathing Vignette Animation */
+        @keyframes breathe {
+
+            0%,
+            100% {
+                opacity: 0.4;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.7;
+                transform: scale(1.05);
+            }
+        }
+
+        .vignette {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at center, transparent 0%, #020617 100%);
+            pointer-events: none;
+            z-index: 0;
+            /* Behind canvas? No, canvas is z-0. We want this to be background */
+            /* Actually canvas clears itself. If canvas has transparent pixels, this shows? */
+            /* But canvas fills with #0f172a currently. */
+            /* We want to overlay this ON TOP of the canvas or UNDER? */
+            /* If we put it OVER, it dims the cells too. That creates depth. */
+            /* Let's put it at z-10 but with mix-blend-mode multiply? */
+            /* Or just allow it to darken corners. */
+            /* Let's try placing it absolutely at z-5 (above canvas z-0, below UI z-20). */
+            /* Use mix-blend-mode: multiply to just darken. */
+            mix-blend-mode: multiply;
+            animation: breathe 8s ease-in-out infinite;
+        }
+    </style>
+</head>
+
+<body class="h-screen w-screen relative">
+
+    <!-- Ambient Background Glow -->
+    <div class="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div id="bg-circle"
+            class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-sky-500/10 blur-[100px] transition-colors duration-700">
+        </div>
+    </div>
+
+    <!-- Main Canvas -->
+    <canvas id="gameCanvas" class="absolute inset-0 z-0"></canvas>
+
+    <!-- Breathing Vignette Overlay (Over Canvas) -->
+    <div class="vignette z-[5]"></div>
+
+    <!-- Info Overlay (Top Left) -->
+    <div id="statsPanel"
+        class="absolute top-4 left-4 z-10 text-xs text-slate-400 pointer-events-none transition-opacity duration-300">
+        <div>POPULATION: <span id="popDisplay" class="text-sky-400 font-bold"
+                style="text-shadow: 0 0 10px rgba(56,189,248,0.5)">0</span></div>
+        <div>GENERATION: <span id="genDisplay" class="text-sky-400 font-bold"
+                style="text-shadow: 0 0 10px rgba(56,189,248,0.5)">0</span></div>
+        <div class="mt-1 text-[10px] opacity-50">Drag to draw • Space to pause</div>
+    </div>
+
+    <!-- Controls Container -->
+    <div id="ui-container"
+        class="absolute bottom-6 left-0 right-0 z-20 flex justify-center items-end px-4 gap-3 pointer-events-none">
+
+        <!-- Segment 1: Zoom (Simpler now) -->
+        <div
+            class="glass-panel rounded-2xl px-4 py-3 flex items-center shadow-lg shadow-black/20 pointer-events-auto h-14">
+            <div class="flex items-center space-x-3 text-slate-300">
+                <button id="zoomOut" class="btn-icon text-sm"><i class="fas fa-minus"></i></button>
+                <span class="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Zoom</span>
+                <button id="zoomIn" class="btn-icon text-sm"><i class="fas fa-plus"></i></button>
+            </div>
+        </div>
+
+        <!-- Segment 2: Playback & Speed -->
+        <div
+            class="glass-panel rounded-2xl px-5 py-3 flex items-center shadow-lg shadow-black/20 pointer-events-auto h-14">
+            <!-- Play/Pause -->
+            <button id="playPauseBtn"
+                class="text-xl text-white hover:text-sky-400 transition-colors w-8 flex justify-center btn-icon">
+                <i class="fas fa-play"></i>
+            </button>
+
+            <div class="segment-divider"></div>
+
+            <!-- Speed -->
+            <div class="flex flex-col w-24 mx-2">
+                <div class="flex justify-between text-[8px] text-slate-500 uppercase tracking-wider mb-1">
+                    <span>Slow</span>
+                    <span>Fast</span>
+                </div>
+                <input type="range" id="speedSlider" min="1" max="60" value="30" class="w-full">
+            </div>
+
+            <div class="segment-divider"></div>
+
+            <!-- Step Counter -->
+            <div class="flex flex-col items-end min-w-[60px]">
+                <span class="text-[8px] text-slate-500 uppercase tracking-wider">Step</span>
+                <span id="stepDisplay" class="text-sm font-mono text-white">0</span>
+            </div>
+        </div>
+
+        <!-- Segment 3: Actions & Appearance -->
+        <div
+            class="glass-panel rounded-2xl px-4 py-3 flex items-center shadow-lg shadow-black/20 pointer-events-auto h-14">
+            <!-- Randomize -->
+            <button id="randomizeBtn" class="btn-icon text-slate-300 hover:text-sky-400 mx-1" title="Randomize">
+                <i class="fas fa-random"></i>
+            </button>
+
+            <div class="segment-divider"></div>
+
+            <!-- Colors -->
+            <button id="colorBtn" class="btn-icon text-slate-300 hover:text-pink-400 mx-1" title="Change Color Theme">
+                <i class="fas fa-palette"></i>
+            </button>
+
+            <div class="segment-divider"></div>
+
+            <!-- Import -->
+            <button id="importBtn" class="btn-icon text-slate-300 hover:text-emerald-400 mx-1" title="Import Pattern">
+                <i class="fas fa-file-import"></i>
+            </button>
+            <!-- Presets -->
+            <button id="presetsBtn" class="btn-icon text-slate-300 hover:text-indigo-400 mx-1" title="Pattern Presets">
+                <i class="fas fa-list"></i>
+            </button>
+
+            <div class="segment-divider"></div>
+
+            <!-- Hide UI -->
+            <button id="hideUiBtn" class="btn-icon text-slate-300 hover:text-white mx-1" title="Hide UI">
+                <i class="fas fa-eye-slash"></i>
+            </button>
+        </div>
+
+    </div>
+
+    <!-- Hidden Restore Button -->
+    <button id="restoreUiBtn" ```html
+        class="absolute bottom-6 right-6 z-30 glass-panel rounded-full w-10 h-10 flex items-center justify-center text-slate-300 hover:text-white transition-all shadow-lg opacity-0 pointer-events-none translate-y-10">
+        <i class="fas fa-eye"></i>
+    </button>
+
+    <!-- Import Modal -->
+    <div id="importModal"
+        class="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300">
+        <div class="glass-panel rounded-2xl p-6 w-[500px] max-w-[90vw] shadow-2xl transform scale-95 transition-transform duration-300"
+            id="importModalContent">
+            <h2 class="text-xl font-bold text-white mb-4 flex items-center">
+                <i class="fas fa-file-import mr-3 text-emerald-400"></i> Import RLE Pattern
+            </h2>
+            <p class="text-xs text-slate-400 mb-2">Paste a Run Length Encoded (RLE) string below.</p>
+            <textarea id="rleInput"
+                class="w-full h-32 bg-slate-900/50 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 font-mono focus:outline-none focus:border-emerald-500 transition-colors resize-none mb-4"
+                placeholder="x = 3, y = 3&#10;bo$2bo$3o!"></textarea>
+
+            <div class="flex justify-end gap-3">
+                <button id="cancelImportBtn"
+                    class="px-4 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors text-sm">Cancel</button>
+                <button id="loadPatternBtn"
+                    class="px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white border border-emerald-500/50 hover:border-emerald-500 transition-all text-sm font-bold shadow-[0_0_15px_rgba(16,185,129,0.3)]">Load
+                    Pattern</button>
+            </div>
+            <div id="importError" class="text-red-400 text-xs mt-2 hidden"></div>
+        </div>
+    </div>
+
+    <!-- Presets Modal -->
+    <div id="presetsModal"
+        class="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300">
+        <div class="glass-panel rounded-2xl p-6 w-[400px] max-w-[90vw] shadow-2xl transform scale-95 transition-transform duration-300"
+            id="presetsModalContent">
+            <h2 class="text-xl font-bold text-white mb-4 flex items-center">
+                <i class="fas fa-list mr-3 text-indigo-400"></i> Select Preset
+            </h2>
+            <div class="space-y-2" id="presetList">
+                <!-- Preset buttons injected by JS -->
+            </div>
+            <div class="flex justify-end mt-4">
+                <button id="closePresetsBtn"
+                    class="px-4 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors text-sm">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * Game of Life Logic & Rendering
+         */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const bgCircle = document.getElementById('bg-circle');
+
+        // State
+        let grid = [];
+        let cols, rows;
+        let cellSize = 10;
+        let animationId;
+        let isPlaying = false;
+        let speed = 30; // frames per second target
+        let lastFrameTime = 0;
+        let generation = 0;
+        let population = 0;
+        let dragging = false;
+        let eraseMode = false;
+        let dyingList = []; // Tracks cells that are dying for visual effect
+
+        // Rules (Standard Game of Life defaults)
+        let ruleBorn = [3];
+        let ruleSurvive = [2, 3];
+
+        // UI Elements
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const speedSlider = document.getElementById('speedSlider');
+        const popDisplay = document.getElementById('popDisplay');
+        const genDisplay = document.getElementById('genDisplay');
+        const stepDisplay = document.getElementById('stepDisplay');
+        const uiContainer = document.getElementById('ui-container');
+        const restoreUiBtn = document.getElementById('restoreUiBtn');
+        const statsPanel = document.getElementById('statsPanel');
+        // Color Palettes (Hue values)
+        const themes = [
+            0,   // White/Gray (Default)
+            200, // Sky Blue
+            150, // Green (Matrix)
+            280, // Purple (Synthwave)
+            340, // Pink
+            40   // Gold
+        ];
+        let currentThemeIndex = 0;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            initGrid();
+            draw();
+        }
+
+        function initGrid() {
+            cols = Math.ceil(canvas.width / cellSize);
+            rows = Math.ceil(canvas.height / cellSize);
+
+            if (grid.length === 0) {
+                grid = createEmptyGrid(cols, rows);
+                randomizeGrid();
+            } else {
+                const newGrid = createEmptyGrid(cols, rows);
+                const oldRows = grid.length;
+                const oldCols = grid[0].length;
+
+                for (let y = 0; y < Math.min(rows, oldRows); y++) {
+                    for (let x = 0; x < Math.min(cols, oldCols); x++) {
+                        newGrid[y][x] = grid[y][x];
+                    }
+                }
+                grid = newGrid;
+            }
+            countPopulation();
+        }
+
+        function createEmptyGrid(c, r) {
+            return new Array(r).fill(null).map(() => new Array(c).fill(0));
+        }
+
+        function randomizeGrid() {
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    grid[y][x] = Math.random() > 0.85 ? 1 : 0;
+                }
+            }
+            generation = 0;
+            dyingList = [];
+            countPopulation();
+            lastFrameTime = performance.now();
+            draw();
+            updateStats();
+        }
+
+        function countPopulation() {
+            population = 0;
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (grid[y][x]) population++;
+                }
+            }
+        }
+
+        function updateStats() {
+            popDisplay.textContent = population.toLocaleString();
+            genDisplay.textContent = generation.toLocaleString();
+            stepDisplay.textContent = generation.toLocaleString();
+        }
+
+        function draw() {
+            ctx.shadowBlur = 0;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const bornDyingBuckets = [[], [], [], [], []];
+            const stableDyingBuckets = [[], [], [], [], []];
+
+            for (let i = dyingList.length - 1; i >= 0; i--) {
+                const cell = dyingList[i];
+                if (cell.opacity <= 0) {
+                    dyingList.splice(i, 1);
+                    continue;
+                }
+
+                let bucketIdx = 4 - Math.floor((cell.opacity + 0.1) * 4);
+                if (bucketIdx < 0) bucketIdx = 0;
+                if (bucketIdx > 4) bucketIdx = 4;
+
+                if (cell.type === 1) {
+                    bornDyingBuckets[bucketIdx].push(cell);
+                } else {
+                    stableDyingBuckets[bucketIdx].push(cell);
+                }
+
+                cell.opacity -= 0.15;
+            }
+
+            ctx.shadowBlur = 15;
+
+            for (let i = 0; i < 5; i++) {
+                const bucket = bornDyingBuckets[i];
+                if (bucket.length === 0) continue;
+
+                const alpha = (1.0 - (i * 0.2)) * 0.5;
+                ctx.fillStyle = `rgba(52, 211, 153, ${alpha})`;
+                ctx.shadowColor = `rgba(52, 211, 153, ${alpha})`;
+
+                ctx.beginPath();
+                for (const cell of bucket) {
+                    ctx.rect(cell.x * cellSize, cell.y * cellSize, cellSize - 1, cellSize - 1);
+                }
+                ctx.fill();
+            }
+
+            let themeHue = themes[currentThemeIndex];
+
+            for (let i = 0; i < 5; i++) {
+                const bucket = stableDyingBuckets[i];
+                if (bucket.length === 0) continue;
+
+                const alpha = (1.0 - (i * 0.2)) * 0.5;
+
+                if (themeHue === 0) {
+                    ctx.fillStyle = `rgba(240, 240, 240, ${alpha})`;
+                    ctx.shadowColor = `rgba(240, 240, 240, ${alpha})`;
+                } else {
+                    ctx.fillStyle = `hsla(${themeHue}, 100%, 60%, ${alpha})`;
+                    ctx.shadowColor = `hsla(${themeHue}, 100%, 60%, ${alpha})`;
+                }
+
+                ctx.beginPath();
+                for (const cell of bucket) {
+                    ctx.rect(cell.x * cellSize, cell.y * cellSize, cellSize - 1, cellSize - 1);
+                }
+                ctx.fill();
+            }
+
+            let stableColor, stableShadow;
+            if (themeHue === 0) {
+                stableColor = '#f8fafc';
+                stableShadow = 'rgba(255, 255, 255, 0.6)';
+            } else {
+                stableColor = `hsl(${themeHue}, 100%, 60%)`;
+                stableShadow = `hsl(${themeHue}, 100%, 60%)`;
+            }
+
+            const bornPath = new Path2D();
+            const stablePath = new Path2D();
+            let hasBorn = false;
+            let hasStable = false;
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const val = grid[y][x];
+                    if (val > 0) {
+                        if (val === 1) {
+                            bornPath.rect(x * cellSize, y * cellSize, cellSize - 1, cellSize - 1);
+                            hasBorn = true;
+                        } else {
+                            stablePath.rect(x * cellSize, y * cellSize, cellSize - 1, cellSize - 1);
+                            hasStable = true;
+                        }
+                    }
+                }
+            }
+
+            if (hasStable) {
+                ctx.globalAlpha = 0.6;
+                ctx.fillStyle = stableColor;
+                ctx.shadowColor = stableShadow;
+                ctx.shadowBlur = 12;
+                ctx.fill(stablePath);
+                ctx.globalAlpha = 1.0;
+            }
+
+            if (hasBorn) {
+                ctx.fillStyle = 'rgba(52, 211, 153, 0.6)';
+                ctx.shadowColor = 'rgba(52, 211, 153, 0.6)';
+                ctx.shadowBlur = 20;
+                ctx.fill(bornPath);
+            }
+        }
+
+        function computeNextGen() {
+            const nextGrid = createEmptyGrid(cols, rows);
+            let hasChanges = false;
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const val = grid[y][x];
+                    const isAlive = val > 0;
+
+                    let neighbors = 0;
+                    for (let i = -1; i <= 1; i++) {
+                        for (let j = -1; j <= 1; j++) {
+                            if (i === 0 && j === 0) continue;
+                            const col = (x + j + cols) % cols;
+                            const row = (y + i + rows) % rows;
+                            neighbors += (grid[row][col] > 0 ? 1 : 0);
+                        }
+                    }
+
+                    // Rules (Updated)
+                    if (!isAlive && ruleBorn.includes(neighbors)) {
+                        // BORN
+                        nextGrid[y][x] = 1;
+                        hasChanges = true;
+                    } else if (isAlive && !ruleSurvive.includes(neighbors)) {
+                        // DIES
+                        nextGrid[y][x] = 0;
+                        hasChanges = true;
+                        dyingList.push({ x, y, opacity: 1.0, type: grid[y][x] });
+                    } else if (isAlive) {
+                        // SURVIVES
+                        nextGrid[y][x] = 2;
+                    }
+                }
+            }
+
+            grid = nextGrid;
+            generation++;
+            countPopulation();
+        }
+
+        function loop(timestamp) {
+            if (!isPlaying) return;
+
+            const timeSinceLastFrame = timestamp - lastFrameTime;
+            const fpsInterval = 1000 / speed;
+
+            if (timeSinceLastFrame > fpsInterval) {
+                lastFrameTime = timestamp - (timeSinceLastFrame % fpsInterval);
+                computeNextGen();
+                updateStats();
+            }
+            draw();
+            animationId = requestAnimationFrame(loop);
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            const icon = playPauseBtn.querySelector('i');
+            if (isPlaying) {
+                icon.classList.remove('fa-play');
+                icon.classList.add('fa-pause');
+                lastFrameTime = performance.now();
+                loop(lastFrameTime);
+            } else {
+                icon.classList.remove('fa-pause');
+                icon.classList.add('fa-play');
+                cancelAnimationFrame(animationId);
+            }
+        }
+
+        // --- Interaction Handlers ---
+
+        document.getElementById('zoomIn').onclick = () => {
+            if (cellSize < 50) {
+                cellSize += 2;
+                resize();
+            }
+        };
+        document.getElementById('zoomOut').onclick = () => {
+            if (cellSize > 4) {
+                cellSize -= 2;
+                resize();
+            }
+        };
+
+        speedSlider.oninput = (e) => {
+            speed = parseInt(e.target.value);
+        };
+
+        playPauseBtn.onclick = togglePlay;
+
+        document.getElementById('randomizeBtn').onclick = () => {
+            randomizeGrid();
+            if (!isPlaying) draw();
+        };
+
+        function updateTheme() {
+            const theme = themes[currentThemeIndex];
+            draw();
+
+            let colorClass, shadowStyle, sliderColor, bgCircleColor;
+
+            if (theme === 0) {
+                colorClass = 'text-white';
+                shadowStyle = '0 0 10px rgba(255,255,255,0.5)';
+                sliderColor = '#ffffff';
+                bgCircleColor = 'rgba(255,255,255,0.05)';
+            } else {
+                colorClass = `text-[hsl(${theme},100%,60%)]`;
+                shadowStyle = `0 0 10px hsl(${theme},100%,60%, 0.5)`;
+                sliderColor = `hsl(${theme}, 100%, 60%)`;
+                bgCircleColor = `hsl(${theme}, 100%, 60%, 0.1)`;
+            }
+
+            popDisplay.style.textShadow = shadowStyle;
+            genDisplay.style.textShadow = shadowStyle;
+
+            const colorVal = theme === 0 ? '#fff' : `hsl(${theme}, 100%, 60%)`;
+            popDisplay.style.color = colorVal;
+            genDisplay.style.color = colorVal;
+
+            const styleId = 'dynamic-theme-style';
+            let styleTag = document.getElementById(styleId);
+            if (!styleTag) {
+                styleTag = document.createElement('style');
+                styleTag.id = styleId;
+                document.head.appendChild(styleTag);
+            }
+            styleTag.innerHTML = `
+                input[type=range]::-webkit-slider-thumb {
+                    background: ${sliderColor} !important;
+                    box-shadow: 0 0 10px ${sliderColor}80 !important;
+                }
+                .btn-icon:hover {
+                    color: ${sliderColor} !important;
+                    text-shadow: 0 0 8px ${sliderColor}80 !important;
+                }
+            `;
+        }
+
+        document.getElementById('colorBtn').onclick = () => {
+            currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+            updateTheme();
+        };
+
+        function toggleUi() {
+            const isHidden = uiContainer.classList.contains('hidden-ui');
+
+            if (!isHidden) {
+                uiContainer.classList.add('hidden-ui');
+                statsPanel.classList.add('opacity-0');
+                restoreUiBtn.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-10');
+            } else {
+                uiContainer.classList.remove('hidden-ui');
+                statsPanel.classList.remove('opacity-0');
+                restoreUiBtn.classList.add('opacity-0', 'pointer-events-none', 'translate-y-10');
+            }
+        }
+        document.getElementById('hideUiBtn').onclick = toggleUi;
+        restoreUiBtn.onclick = toggleUi;
+
+        const importBtn = document.getElementById('importBtn');
+        const importModal = document.getElementById('importModal');
+        const importModalContent = document.getElementById('importModalContent');
+        const cancelImportBtn = document.getElementById('cancelImportBtn');
+        const loadPatternBtn = document.getElementById('loadPatternBtn');
+        const rleInput = document.getElementById('rleInput');
+        const importError = document.getElementById('importError');
+
+        // --- Presets Logic ---
+        const presetsBtn = document.getElementById('presetsBtn');
+        const presetsModal = document.getElementById('presetsModal');
+        const presetsModalContent = document.getElementById('presetsModalContent');
+        const closePresetsBtn = document.getElementById('closePresetsBtn');
+        const presetList = document.getElementById('presetList');
+
+        // Presets Data
+        const PRESETS = {
+            "Oscillator (112p51)": `x = 37, y = 37, rule = B3/S23
+15b2o3b2o$$$6b2o21b2o$6b2o21b2o$$3b2o27b2o$3b2o9b2o5b2o9b2o$9b3ob2o7b
+2ob3o$8bobo15bobo$8b2o17b2o$8bo19bo$$8bo19bo$7b2o19b2o$o6bo21bo6bo$o
+35bo$$$$o35bo$o6bo21bo6bo$7b2o19b2o$8bo19bo$$8bo19bo$8b2o17b2o$8bobo
+15bobo$9b3ob2o7b2ob3o$3b2o9b2o5b2o9b2o$3b2o27b2o$$6b2o21b2o$6b2o21b2o$
+$$15b2o3b2o!`,
+            "Rocket (117p9h3v0)": `x = 17, y = 29, rule = B3/S23
+8bo$7bobo$6bo3bo$7b3o$$5b2o3b2o$2b2o3bobo3b2o$2b2o3bobo3b2o$2o5bobo5b
+2o$4b2obobob2o$o6bobo6bo$3b2o2bobo2b2o$bo2bobo3bobo2bo$b2o11b2o$b2o11b
+2o$4bo7bo$4b3o3b3o$6bo3bo$3b2obo3bob2o$5b2o3b2o$5bobobobo$$5bo2bo2bo$
+6b2ob2o$5b2o3b2o$$4bo2b3o2bo$3b11o$3b2obo3bob2o!`,
+            "Washerwoman": `x = 56, y = 5, rule = B3/S23
+o$2o4bo5bo5bo5bo5bo5bo5bo5bo5bo$3o2bobo3bobo3bobo3bobo3bobo3bobo3bobo
+3bobo3bobo$2o4bo5bo5bo5bo5bo5bo5bo5bo5bo$o!`,
+            "Jason's Bow": `x = 92, y = 38, rule = B368/S245
+26b3o$27bo13b4o$24b3ob2o11b4o$4o20b3ob2o34b4o$4o23bo36b2obo$26b3o37b2o
+$66b2o$$$68b4o3bo$37bo3bo26b3o3b2o$24b2o11bob2obo23b3obob3o$24b2o11bob
+2obo23b3obo3b2o$24b2o11bo3bo23b4o4bo$24b2o40b3obo3b2o$66b3obob3o$68b3o
+3b2o$68b4o3bo$$20b2o$16b3ob4o$17bobo3bo$17b2o4b2o$16b2o4b3o41b2o$18bo
+3b3o13bo3bo23b2o$16b2o4b3o13bob2obo22b2o$17b2o4b2o13bob2obo22b2o$17bob
+o3bo14bo3bo$16b3ob4o$20b2o$$$73b3o$74bo13b4o$71b3ob2o11b4o$47b4o20b3ob
+2o$47b4o23bo$73b3o!`,
+            "Double X": `x = 129, y = 63, rule = B3/S23
+2o125b2o$2o125b2o$$bo5bo113bo5bo$3o3b3o38b2o31b2o38b3o3b3o$o2bobo2bo
+16b2o19b4o29b4o19b2o16bo2bobo2bo$2b2ob2o16b2ob2o18b2ob2o27b2ob2o18b2ob
+2o16b2ob2o$23b4o21b2o29b2o21b4o$24b2o77b2o$$o7bo8b2o38bobo9bobo38b2o8b
+o7bo$bobobobo9bobo37b2o11b2o37bobo9bobobobo$bobobobo9bo40bo11bo40bo9bo
+bobobo$ob2ob2obo111bob2ob2obo$2o5b2o111b2o5b2o$$$$$$$47bo33bo$28b3o14b
+2o35b2o14b3o$28bo17b2o33b2o17bo$29bo69bo$$$2o125b2o$2o125b2o$$$$$34bob
+o3b2o45b2o3bobo$2o32b2o4bobo43bobo4b2o32b2o$2o33bo4bo47bo4bo33b2o$$bo
+5bo113bo5bo$3o3b3o111b3o3b3o$o2bobo2bo111bo2bobo2bo$2b2ob2o115b2ob2o$$
+$$o7bo15bo79bo15bo7bo$bobobobo14b2o27b3o21b3o27b2o14bobobobo$bobobobo
+15b2o26bo25bo26b2o15bobobobo$ob2ob2obo43bo23bo43bob2ob2obo$2o5b2o111b
+2o5b2o$$$$$$11bo2bo42bo2bo7bo2bo42bo2bo$15bo19b4o22bo5bo22b4o19bo$11bo
+3bo18bo3bo18bo3bo5bo3bo18bo3bo18bo3bo$12b4o22bo19b4o5b4o19bo22b4o$34bo
+2bo53bo2bo$$$2o125b2o$2o125b2o!`
+        };
+
+        // Initialize Preset Buttons
+        Object.keys(PRESETS).forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'w-full text-left px-4 py-3 rounded-lg bg-slate-800/50 hover:bg-indigo-500/20 text-slate-300 hover:text-white border border-slate-700 hover:border-indigo-500/50 transition-all text-sm mb-2 flex items-center group';
+            btn.innerHTML = `<i class="fas fa-play text-[10px] mr-3 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>${name}`;
+            btn.onclick = () => {
+                importPattern(PRESETS[name]);
+                hidePresetsModal();
+            };
+            presetList.appendChild(btn);
+        });
+
+        function showImportModal() {
+            isPlaying = false;
+            const icon = playPauseBtn.querySelector('i');
+            icon.classList.remove('fa-pause');
+            icon.classList.add('fa-play');
+            cancelAnimationFrame(animationId);
+
+            importModal.classList.remove('opacity-0', 'pointer-events-none');
+            importModalContent.classList.remove('scale-95');
+            importModalContent.classList.add('scale-100');
+            rleInput.value = '';
+            rleInput.focus();
+            importError.classList.add('hidden');
+        }
+
+        function hideImportModal() {
+            importModal.classList.add('opacity-0', 'pointer-events-none');
+            importModalContent.classList.remove('scale-100');
+            importModalContent.classList.add('scale-95');
+        }
+
+        function showPresetsModal() {
+            presetsModal.classList.remove('opacity-0', 'pointer-events-none');
+            presetsModalContent.classList.remove('scale-95');
+            presetsModalContent.classList.add('scale-100');
+        }
+
+        function hidePresetsModal() {
+            presetsModal.classList.add('opacity-0', 'pointer-events-none');
+            presetsModalContent.classList.remove('scale-100');
+            presetsModalContent.classList.add('scale-95');
+        }
+
+        presetsBtn.onclick = showPresetsModal;
+        closePresetsBtn.onclick = hidePresetsModal;
+
+        presetsModal.addEventListener('click', (e) => {
+            if (e.target === presetsModal) hidePresetsModal();
+        });
+
+
+        /**
+         * PARSE RLE + RULES
+         * Supports: x=..., y=..., rule=B3/S23
+         */
+        function parseRLE(input) {
+            // Remove comments and lines starting with #
+            let lines = input.split('\n');
+            let patternData = '';
+            let width = 0, height = 0;
+            let ruleBornParsed = null;
+            let ruleSurviveParsed = null;
+
+            for (let line of lines) {
+                line = line.trim();
+                if (line.startsWith('#')) continue;
+
+                // Header line: x = 123, y = 123, rule = B3/S23
+                if (line.startsWith('x') || line.startsWith('X')) {
+                    // Extract Dimensions
+                    const matchDims = line.match(/x\s*=\s*(\d+),\s*y\s*=\s*(\d+)/i);
+                    if (matchDims) {
+                        width = parseInt(matchDims[1]);
+                        height = parseInt(matchDims[2]);
+                    }
+
+                    // Extract Rules
+                    // regex look for rule = ...
+                    // Rule format often B3/S23 or 23/3 or B368/S245
+                    const ruleMatch = line.match(/rule\s*=\s*([^,\n]+)/i);
+                    if (ruleMatch) {
+                        let ruleStr = ruleMatch[1].trim();
+                        // Parse rule string
+                        // Common formats: B.../S..., S.../B..., .../... (S/B)
+
+                        let b = [], s = [];
+
+                        // case 1: Standard Notation B.../S...
+                        if (ruleStr.toUpperCase().includes('B') && ruleStr.toUpperCase().includes('S')) {
+                            const bPart = ruleStr.match(/B(\d+)/i);
+                            const sPart = ruleStr.match(/S(\d+)/i);
+
+                            if (bPart) b = bPart[1].split('').map(d => parseInt(d));
+                            if (sPart) s = sPart[1].split('').map(d => parseInt(d));
+                        }
+                        // case 2: Numeric S/B format (e.g., 23/3)
+                        else if (ruleStr.includes('/')) {
+                            const parts = ruleStr.split('/');
+                            const p1 = parts[0].trim();
+                            const p2 = parts[1].trim();
+                            // if numeric
+                            if (/^\d+$/.test(p1) && /^\d+$/.test(p2)) {
+                                s = p1.split('').map(d => parseInt(d));
+                                b = p2.split('').map(d => parseInt(d));
+                            }
+                        }
+
+                        if (b.length > 0) ruleBornParsed = b;
+                        if (s.length > 0) ruleSurviveParsed = s;
+                    }
+
+                    continue; // Skip header
+                }
+                patternData += line;
+            }
+
+            // Join rest of data, remove whitespace
+            patternData = patternData.replace(/\s/g, '');
+
+            // Parse pattern string
+            // Ends with !
+            const endIndex = patternData.indexOf('!');
+            if (endIndex >= 0) {
+                patternData = patternData.substring(0, endIndex);
+            }
+
+            let cells = [];
+            let currentX = 0;
+            let currentY = 0;
+
+            const regex = /(\d*)([bo$])/g;
+            let match;
+
+            // Calculate actual width/height if not provided, just for centering
+            let maxX = 0;
+            let maxY = 0;
+
+            while ((match = regex.exec(patternData)) !== null) {
+                let count = match[1] ? parseInt(match[1]) : 1;
+                let tag = match[2];
+
+                if (tag === '$') {
+                    currentY += count;
+                    currentX = 0;
+                } else if (tag === 'b') {
+                    currentX += count;
+                } else if (tag === 'o') {
+                    for (let i = 0; i < count; i++) {
+                        cells.push({ x: currentX, y: currentY });
+                        currentX++;
+                    }
+                }
+                if (currentX > maxX) maxX = currentX;
+            }
+
+            if (width === 0) width = maxX;
+            if (height === 0) height = currentY + 1;
+
+            return { width, height, cells, ruleBorn: ruleBornParsed, ruleSurvive: ruleSurviveParsed };
+        }
+
+        // Modified importPattern to accept optional string
+        function importPattern(directString = null) {
+            const raw = directString !== null ? directString : rleInput.value.trim();
+            if (!raw) return;
+
+            try {
+                const data = parseRLE(raw);
+                if (data.cells.length === 0) throw new Error("No cells found");
+
+                // Update Rules if present in RLE, otherwise reset to default
+                if (data.ruleBorn && data.ruleSurvive) {
+                    ruleBorn = data.ruleBorn;
+                    ruleSurvive = data.ruleSurvive;
+                } else {
+                    // Reset to default if no rule specified? 
+                    // Or keep current? Usually RLE import implies settings for that pattern.
+                    // If regular pattern, assume standard.
+                    ruleBorn = [3];
+                    ruleSurvive = [2, 3];
+                }
+
+                // Clear grid
+                grid = createEmptyGrid(cols, rows);
+                dyingList = [];
+                generation = 0;
+
+                // Center it
+                const centerX = Math.floor(cols / 2);
+                const centerY = Math.floor(rows / 2);
+                const offsetX = centerX - Math.floor(data.width / 2);
+                const offsetY = centerY - Math.floor(data.height / 2);
+
+                data.cells.forEach(pt => {
+                    const finalX = offsetX + pt.x;
+                    const finalY = offsetY + pt.y;
+
+                    if (finalX >= 0 && finalX < cols && finalY >= 0 && finalY < rows) {
+                        grid[finalY][finalX] = 1; // Born
+                    }
+                });
+
+                countPopulation();
+                updateStats();
+                draw();
+                // Close modals logic handled by caller or general hide
+                if (directString === null) hideImportModal();
+
+            } catch (e) {
+                console.error(e);
+                // Only show error on textarea if manual import
+                if (directString === null) {
+                    importError.textContent = "Invalid RLE format. Please check your string.";
+                    importError.classList.remove('hidden');
+                } else {
+                    alert("Error loading preset: " + e.message);
+                }
+            }
+        }
+
+        importBtn.onclick = showImportModal;
+        cancelImportBtn.onclick = hideImportModal;
+        loadPatternBtn.onclick = () => importPattern(null);
+
+        // Close on background click
+        importModal.addEventListener('click', (e) => {
+            if (e.target === importModal) hideImportModal();
+        });
+
+        // Drawing Interaction
+        function getCellCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            // Handle both touch and mouse
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const x = Math.floor((clientX - rect.left) / cellSize);
+            const y = Math.floor((clientY - rect.top) / cellSize);
+            return { x, y };
+        }
+
+        function handleInput(e) {
+            const { x, y } = getCellCoords(e);
+            if (x >= 0 && x < cols && y >= 0 && y < rows) {
+                grid[y][x] = eraseMode ? 0 : 1;
+                draw();
+                countPopulation();
+                updateStats();
+            }
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            dragging = true;
+            const { x, y } = getCellCoords(e);
+            if (grid[y][x] === 1) eraseMode = true;
+            else eraseMode = false;
+            handleInput(e);
+        });
+
+        window.addEventListener('mouseup', () => {
+            dragging = false;
+            eraseMode = false;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (dragging) handleInput(e);
+        });
+
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+            dragging = true;
+            const { x, y } = getCellCoords(e);
+            if (grid[y][x] === 1) eraseMode = true;
+            else eraseMode = false;
+            handleInput(e);
+            e.preventDefault(); // Prevent scrolling
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (dragging) handleInput(e);
+            e.preventDefault();
+        }, { passive: false });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') togglePlay();
+        });
+
+        // Initialize
+        window.addEventListener('resize', resize);
+        resize(); // Starts it all
+        updateTheme(); // Apply default white theme to UI
+
+    </script>
+</body>
+
+</html>
